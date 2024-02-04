@@ -1,0 +1,31 @@
+$adapter = Get-NetAdapter | Where-Object {$_.Status -eq "Up"}
+if ($adapter -eq $null) {
+    Write-Host "No active network adapter found."
+    exit
+}
+
+$adapter | Disable-NetAdapter
+
+$deviceId = $adapter.PnpInstanceId
+$device = Get-PnpDevice | Where-Object {$_.InstanceId -eq $deviceId}
+$driverRollbackResult = $device | Disable-PnpDevice -Confirm:$false -ErrorAction SilentlyContinue | Enable-PnpDevice -Confirm:$false -ErrorAction SilentlyContinue
+
+if ($driverRollbackResult -ne $null) {
+    Write-Host "Failed to roll back network adapter drivers."
+    exit
+}
+
+
+$adapter | Enable-NetAdapter
+
+$adapterConfig = Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.InterfaceIndex -eq $adapter.InterfaceIndex}
+
+$adapterConfig.EnableDHCP()
+$adapterConfig.SetDNSServerSearchOrder(@())
+
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c ipconfig /flushdns" -WindowStyle Hidden
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c ipconfig /release" -WindowStyle Hidden
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c ipconfig /renew" -WindowStyle Hidden
+
+
+Write-Host "Network adapter reset to defaults/automatic"
